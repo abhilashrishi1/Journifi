@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#14181D" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Journifi" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+<link rel="icon" href="icon-192.png" />
+<title>Journifi - Trade Journal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: #14181D; }
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  input, select, textarea, button { font-family: inherit; }
+  input::-webkit-calendar-picker-indicator { filter: invert(0.8); }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* ---------------------------------------------------------------- */
+/* Tokens                                                             */
+/* ---------------------------------------------------------------- */
+
+const C = {
+  bg: '#14181D',
+  surface: '#1C2229',
+  surfaceAlt: '#242B33',
+  border: '#323A43',
+  ink: '#EDE9E1',
+  inkMuted: '#8C95A0',
+  gold: '#D9A857',
+  gain: '#74B79B',
+  loss: '#C9684B',
+};
+
+function hexToRgba(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+/* ---------------------------------------------------------------- */
+/* Seed data — pulled from IBKR, last 30 days as of Jun 13 2026       */
+/* ---------------------------------------------------------------- */
+
+const SEED_TRADES = [
+  { id: 't1',  date: '2026-06-12', symbol: 'SPY',  exitType: 'MARKET',  pnl: 18.25 },
+  { id: 't2',  date: '2026-06-12', symbol: 'SPY',  exitType: 'MARKET',  pnl: 18.95 },
+  { id: 't3',  date: '2026-06-12', symbol: 'AMD',  exitType: 'MARKET',  pnl: 44.89 },
+  { id: 't4',  date: '2026-06-09', symbol: 'META', exitType: 'MARKET',  pnl: -60.11 },
+  { id: 't5',  date: '2026-06-09', symbol: 'SPY',  exitType: 'MARKET',  pnl: 1.63 },
+  { id: 't6',  date: '2026-06-08', symbol: 'META', exitType: 'MARKET',  pnl: 97.89 },
+  { id: 't7',  date: '2026-06-05', symbol: 'SPY',  exitType: 'MARKET',  pnl: -17.10 },
+  { id: 't8',  date: '2026-06-05', symbol: 'AMD',  exitType: 'MARKET',  pnl: -176.11 },
+  { id: 't9',  date: '2026-06-03', symbol: 'AMD',  exitType: 'MARKET',  pnl: 114.86 },
+  { id: 't10', date: '2026-05-29', symbol: 'SNDK', exitType: 'EXPIRED', pnl: -45.05 },
+  { id: 't11', date: '2026-05-29', symbol: 'AMD',  exitType: 'MARKET',  pnl: 28.89 },
+  { id: 't12', date: '2026-05-29', symbol: 'AMD',  exitType: 'MARKET',  pnl: -159.83 },
+  { id: 't13', date: '2026-05-26', symbol: 'SPY',  exitType: 'MARKET',  pnl: -1.56 },
+  { id: 't14', date: '2026-05-26', symbol: 'SPY',  exitType: 'MARKET',  pnl: -1.25 },
+  { id: 't15', date: '2026-05-26', symbol: 'AMD',  exitType: 'MARKET',  pnl: -72.13 },
+  { id: 't16', date: '2026-05-26', symbol: 'AMD',  exitType: 'STOP',    pnl: -16.13 },
+  { id: 't17', date: '2026-05-22', symbol: 'SPY',  exitType: 'MARKET',  pnl: -6.72 },
+  { id: 't18', date: '2026-05-22', symbol: 'AMD',  exitType: 'LIMIT',   pnl: 36.89 },
+  { id: 't19', date: '2026-05-19', symbol: 'AMD',  exitType: 'MARKET',  pnl: 36.87 },
+  { id: 't20', date: '2026-05-19', symbol: 'AMD',  exitType: 'MARKET',  pnl: 110.87 },
+  { id: 't21', date: '2026-05-15', symbol: 'AMD',  exitType: 'LIMIT',   pnl: 46.17 },
+  { id: 't22', date: '2026-05-15', symbol: 'MSFT', exitType: 'MARKET',  pnl: -62.11 },
+  { id: 't23', date: '2026-05-15', symbol: 'AMD',  exitType: 'MARKET',  pnl: 67.88 },
+  { id: 't24', date: '2026-05-14', symbol: 'AMD',  exitType: 'MARKET',  pnl: -114.12 },
+  { id: 't25', date: '2026-05-14', symbol: 'AMD',  exitType: 'MARKET',  pnl: 22.88 },
+  { id: 't26', date: '2026-05-14', symbol: 'AMD',  exitType: 'MARKET',  pnl: -114.12 },
+];
+
+const SETUP_OPTIONS = ['21 EMA Pullback', 'Trap Pattern', 'Breakout', 'Other'];
+const PSYCH_OPTIONS = ['Followed Plan', 'Stopped Out as Planned', 'FOMO Entry', 'Revenge Trade', 'Cut Early', 'Held Too Long', 'Hesitated'];
+const STORAGE_KEY = 'journifi-journal-v1';
+
+/* ---------------------------------------------------------------- */
+/* Helpers                                                            */
+/* ---------------------------------------------------------------- */
+
+function fmtMoney(n) {
+  const sign = n < 0 ? '-' : '+';
+  return `${sign}$${Math.abs(n).toFixed(2)}`;
+}
+function fmtPlain(n) { return `$${Math.abs(n).toFixed(2)}`; }
+
+function shortDate(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${months[m - 1]} ${d}`;
+}
+
+function computeStats(trades) {
+  if (trades.length === 0) {
+    return { netPnl: 0, winRate: 0, avgWin: 0, avgLoss: 0, profitFactor: 0, total: 0, wins: 0, losses: 0 };
+  }
+  const wins = trades.filter((t) => t.pnl > 0);
+  const losses = trades.filter((t) => t.pnl < 0);
+  const netPnl = trades.reduce((s, t) => s + t.pnl, 0);
+  const sumWins = wins.reduce((s, t) => s + t.pnl, 0);
+  const sumLosses = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+  return {
+    netPnl,
+    winRate: (wins.length / trades.length) * 100,
+    avgWin: wins.length ? sumWins / wins.length : 0,
+    avgLoss: losses.length ? sumLosses / losses.length : 0,
+    profitFactor: sumLosses ? sumWins / sumLosses : (sumWins > 0 ? Infinity : 0),
+    total: trades.length,
+    wins: wins.length,
+    losses: losses.length,
+  };
+}
+
+function groupByDate(trades) {
+  const map = {};
+  trades.forEach((t) => { map[t.date] = (map[t.date] || 0) + t.pnl; });
+  return map;
+}
+
+function getInsight(stats) {
+  if (stats.total === 0) return 'Log a few trades to start seeing patterns.';
+  const pf = stats.profitFactor;
+  const wr = stats.winRate;
+  if (pf < 1 && wr >= 45) {
+    return `Win rate is ${wr.toFixed(0)}% — close to a coin flip but solid. The leak is size: average losses (${fmtPlain(stats.avgLoss)}) are running bigger than average wins (${fmtPlain(stats.avgWin)}). The edge here isn't "be right more often," it's cut losers faster or hold winners a bit longer.`;
+  }
+  if (pf < 1 && wr < 45) {
+    return `Both win rate (${wr.toFixed(0)}%) and reward-to-risk are working against you right now. Worth reviewing entries tagged "FOMO Entry" or "Revenge Trade" first — those usually explain more of the drawdown than the setup itself.`;
+  }
+  if (pf >= 1 && pf < 1.5) {
+    return `Profit factor of ${pf.toFixed(2)} — you're net positive. Small, consistent edge. Tightening the worst-tagged trades further could push this meaningfully higher.`;
+  }
+  return `Profit factor of ${pf.toFixed(2)} with a ${wr.toFixed(0)}% win rate — this is working. Keep tagging trades so you can see exactly which setup is carrying the period.`;
+}
+
+/* ---------------------------------------------------------------- */
+/* Storage (localStorage — standalone app)                            */
+/* ---------------------------------------------------------------- */
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return { notes: {}, customTrades: [] };
+}
+function saveData(data) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
+}
+
+/* ---------------------------------------------------------------- */
+/* Small UI pieces                                                    */
+/* ---------------------------------------------------------------- */
+
+function CandleIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+      <line x1="7" y1="2" x2="7" y2="26" stroke={C.gain} strokeWidth="1.5" />
+      <rect x="4" y="9" width="6" height="9" rx="1" fill={C.gain} />
+      <line x1="21" y1="2" x2="21" y2="26" stroke={C.loss} strokeWidth="1.5" />
+      <rect x="18" y="4" width="6" height="11" rx="1" fill={C.loss} />
+    </svg>
+  );
+}
+
+function StatCard({ label, value, valueColor, glyph, sub }) {
+  return (
+    <div className="rounded-lg p-3 flex flex-col gap-1"
+      style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.inkMuted }}>
+        <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace" }}>{glyph}</span>
+        <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'IBM Plex Mono', monospace" }}>
+          {label}
+        </span>
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "'Fraunces', serif", color: valueColor || C.ink }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: 11, color: C.inkMuted }}>{sub}</div>}
+    </div>
+  );
+}
+
+function ExitBadge({ type }) {
+  const map = {
+    MARKET: { label: 'Market', color: C.inkMuted },
+    LIMIT: { label: 'Limit', color: C.gain },
+    STOP: { label: 'Stop', color: C.loss },
+    EXPIRED: { label: 'Expired', color: C.loss },
+  };
+  const cfg = map[type] || { label: type, color: C.inkMuted };
+  return (
+    <span style={{
+      fontSize: 10, padding: '2px 6px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: '0.06em',
+      fontFamily: "'IBM Plex Mono', monospace", color: cfg.color,
+      border: `1px solid ${hexToRgba(cfg.color, 0.4)}`, background: hexToRgba(cfg.color, 0.08),
+    }}>
+      {cfg.label}
+    </span>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Cumulative P&L chart (Chart.js)                                    */
+/* ---------------------------------------------------------------- */
+
+function CumulativeChart({ data }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    if (chartRef.current) chartRef.current.destroy();
+    const ctx = canvasRef.current.getContext('2d');
+    chartRef.current = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.map((d) => d.label),
+        datasets: [
+          {
+            label: 'Cumulative P&L',
+            data: data.map((d) => d.cum),
+            borderColor: C.gold,
+            backgroundColor: hexToRgba(C.gold, 0.1),
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            borderWidth: 2,
+          },
+          {
+            label: 'Zero',
+            data: data.map(() => 0),
+            borderColor: C.inkMuted,
+            borderDash: [4, 4],
+            borderWidth: 1,
+            pointRadius: 0,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: C.surfaceAlt,
+            titleColor: C.ink,
+            bodyColor: C.ink,
+            borderColor: C.border,
+            borderWidth: 1,
+            callbacks: {
+              label: (ctx) => ctx.datasetIndex === 0 ? `Cumulative: ${fmtMoney(ctx.raw)}` : null,
+            },
+            filter: (ctx) => ctx.datasetIndex === 0,
+          },
+        },
+        scales: {
+          x: { ticks: { color: C.inkMuted, font: { size: 10 } }, grid: { color: C.border, drawTicks: false } },
+          y: { ticks: { color: C.inkMuted, font: { size: 10 }, callback: (v) => `$${v}` }, grid: { color: C.border, drawTicks: false } },
+        },
+      },
+    });
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [data]);
+
+  return <div style={{ height: 140 }}><canvas ref={canvasRef}></canvas></div>;
+}
+
+/* ---------------------------------------------------------------- */
+/* Trade row                                                          */
+/* ---------------------------------------------------------------- */
+
+function TradeRow({ trade, note, onNoteChange, expanded, onToggle }) {
+  const gain = trade.pnl >= 0;
+  return (
+    <div style={{ borderBottom: `1px solid ${C.border}` }}>
+      <button onClick={onToggle}
+        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 4px', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ fontSize: 12, width: 48, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMuted }}>{shortDate(trade.date)}</div>
+          <div style={{ fontWeight: 600, fontSize: 14, color: C.ink, fontFamily: "'IBM Plex Sans', sans-serif" }}>{trade.symbol}</div>
+          <ExitBadge type={trade.exitType} />
+          {(note && (note.setup || note.psychology)) && <span style={{ color: C.gold, fontSize: 10 }}>●</span>}
+        </div>
+        <div style={{ fontWeight: 600, fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", color: gain ? C.gain : C.loss }}>
+          {fmtMoney(trade.pnl)}
+        </div>
+      </button>
+      {expanded && (
+        <div style={{ paddingBottom: 16, paddingLeft: 4, paddingRight: 4, display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.15s ease-in' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 4, color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>Setup</label>
+              <select value={(note && note.setup) || ''} onChange={(e) => onNoteChange({ ...note, setup: e.target.value })}
+                style={{ width: '100%', fontSize: 14, borderRadius: 4, padding: '6px 8px', background: C.surfaceAlt, color: C.ink, border: `1px solid ${C.border}` }}>
+                <option value="">— Select —</option>
+                {SETUP_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <label style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 4, color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>Psychology</label>
+              <select value={(note && note.psychology) || ''} onChange={(e) => onNoteChange({ ...note, psychology: e.target.value })}
+                style={{ width: '100%', fontSize: 14, borderRadius: 4, padding: '6px 8px', background: C.surfaceAlt, color: C.ink, border: `1px solid ${C.border}` }}>
+                <option value="">— Select —</option>
+                {PSYCH_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 4, color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>Notes</label>
+            <textarea defaultValue={(note && note.text) || ''} onBlur={(e) => onNoteChange({ ...note, text: e.target.value })}
+              placeholder="What did you see? What would you do differently?" rows={2}
+              style={{ width: '100%', fontSize: 14, borderRadius: 4, padding: '6px 8px', resize: 'none', background: C.surfaceAlt, color: C.ink, border: `1px solid ${C.border}`, fontFamily: "'IBM Plex Sans', sans-serif" }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Calendar                                                           */
+/* ---------------------------------------------------------------- */
+
+function ProfitCalendar({ dailyPnl }) {
+  const [month, setMonth] = useState(new Date(2026, 5, 1));
+  const year = month.getFullYear();
+  const mIdx = month.getMonth();
+  const firstDay = new Date(year, mIdx, 1).getDay();
+  const daysInMonth = new Date(year, mIdx + 1, 0).getDate();
+  const monthLabel = month.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+  const cells = [];
+  for (let i = 0; i < firstDay; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const monthlyTotal = Object.entries(dailyPnl)
+    .filter(([date]) => {
+      const [y, m] = date.split('-').map(Number);
+      return y === year && m - 1 === mIdx;
+    })
+    .reduce((s, [, v]) => s + v, 0);
+
+  return (
+    <div style={{ borderRadius: 8, padding: 12, background: C.surface, border: `1px solid ${C.border}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <button onClick={() => setMonth(new Date(year, mIdx - 1, 1))} style={{ background: 'transparent', border: 'none', color: C.inkMuted, cursor: 'pointer', fontSize: 18, padding: 4 }}>‹</button>
+        <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "'Fraunces', serif", color: C.ink }}>{monthLabel}</div>
+        <button onClick={() => setMonth(new Date(year, mIdx + 1, 1))} style={{ background: 'transparent', border: 'none', color: C.inkMuted, cursor: 'pointer', fontSize: 18, padding: 4 }}>›</button>
+      </div>
+      <div style={{ fontSize: 12, marginBottom: 8, color: monthlyTotal >= 0 ? C.gain : C.loss, fontFamily: "'IBM Plex Mono', monospace" }}>
+        Month total: {fmtMoney(monthlyTotal)}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, textAlign: 'center', fontSize: 10, marginBottom: 4, color: C.inkMuted }}>
+        {['S','M','T','W','T','F','S'].map((d, i) => <div key={i}>{d}</div>)}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+        {cells.map((d, i) => {
+          if (d === null) return <div key={i} />;
+          const dateStr = `${year}-${String(mIdx + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+          const pnl = dailyPnl[dateStr];
+          let bg = 'transparent';
+          if (pnl !== undefined) {
+            const abs = Math.abs(pnl);
+            const alpha = abs > 80 ? 0.55 : abs > 20 ? 0.32 : 0.16;
+            bg = hexToRgba(pnl >= 0 ? C.gain : C.loss, alpha);
+          }
+          return (
+            <div key={i} style={{ aspectRatio: '1', borderRadius: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: bg, border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 10, color: C.inkMuted }}>{d}</div>
+              {pnl !== undefined && (
+                <div style={{ fontSize: 9, fontWeight: 500, fontFamily: "'IBM Plex Mono', monospace", color: pnl >= 0 ? C.gain : C.loss }}>
+                  {pnl >= 0 ? '+' : ''}{Math.round(pnl)}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Add trade form                                                     */
+/* ---------------------------------------------------------------- */
+
+function AddTradeForm({ onAdd, onClose }) {
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [symbol, setSymbol] = useState('');
+  const [pnl, setPnl] = useState('');
+  const [exitType, setExitType] = useState('MARKET');
+
+  const submit = () => {
+    if (!symbol || pnl === '') return;
+    onAdd({ id: `custom-${Date.now()}`, date, symbol: symbol.toUpperCase(), exitType, pnl: parseFloat(pnl) });
+    onClose();
+  };
+
+  return (
+    <div style={{ borderRadius: 8, padding: 12, marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 8, background: C.surfaceAlt, border: `1px solid ${C.border}` }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: C.ink, fontFamily: "'Fraunces', serif" }}>New trade</span>
+        <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: C.inkMuted, cursor: 'pointer', fontSize: 16 }}>×</button>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+          style={{ fontSize: 14, borderRadius: 4, padding: '6px 8px', flex: 1, minWidth: 110, background: C.surface, color: C.ink, border: `1px solid ${C.border}` }} />
+        <input type="text" value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="Symbol"
+          style={{ fontSize: 14, borderRadius: 4, padding: '6px 8px', width: 80, background: C.surface, color: C.ink, border: `1px solid ${C.border}` }} />
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <input type="number" step="0.01" value={pnl} onChange={(e) => setPnl(e.target.value)} placeholder="P&L (e.g. -45.00)"
+          style={{ fontSize: 14, borderRadius: 4, padding: '6px 8px', flex: 1, minWidth: 110, background: C.surface, color: C.ink, border: `1px solid ${C.border}` }} />
+        <select value={exitType} onChange={(e) => setExitType(e.target.value)}
+          style={{ fontSize: 14, borderRadius: 4, padding: '6px 8px', background: C.surface, color: C.ink, border: `1px solid ${C.border}` }}>
+          <option value="MARKET">Market</option>
+          <option value="LIMIT">Limit</option>
+          <option value="STOP">Stop</option>
+          <option value="EXPIRED">Expired</option>
+        </select>
+      </div>
+      <button onClick={submit}
+        style={{ fontSize: 14, fontWeight: 600, borderRadius: 4, padding: '8px 0', background: C.gold, color: '#1A1208', border: 'none', cursor: 'pointer' }}>
+        Add to journal
+      </button>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Main App                                                           */
+/* ---------------------------------------------------------------- */
+
+function Journifi() {
+  const [notes, setNotes] = useState({});
+  const [customTrades, setCustomTrades] = useState([]);
+  const [expandedId, setExpandedId] = useState(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  useEffect(() => {
+    const data = loadData();
+    setNotes(data.notes || {});
+    setCustomTrades(data.customTrades || []);
+  }, []);
+
+  const allTrades = useMemo(() => {
+    return [...SEED_TRADES, ...customTrades].sort((a, b) => (a.date < b.date ? 1 : -1));
+  }, [customTrades]);
+
+  const stats = useMemo(() => computeStats(allTrades), [allTrades]);
+  const dailyPnl = useMemo(() => groupByDate(allTrades), [allTrades]);
+
+  const chartData = useMemo(() => {
+    const dates = Object.keys(dailyPnl).sort();
+    let cum = 0;
+    return dates.map((d) => {
+      cum += dailyPnl[d];
+      return { date: d, label: shortDate(d), cum: Math.round(cum * 100) / 100 };
+    });
+  }, [dailyPnl]);
+
+  const handleNoteChange = (tradeId, nextNote) => {
+    const nextNotes = { ...notes, [tradeId]: nextNote };
+    setNotes(nextNotes);
+    saveData({ notes: nextNotes, customTrades });
+  };
+
+  const handleAddTrade = (trade) => {
+    const next = [...customTrades, trade];
+    setCustomTrades(next);
+    saveData({ notes, customTrades: next });
+  };
+
+  const range = allTrades.length
+    ? `${shortDate(allTrades[allTrades.length - 1].date)} – ${shortDate(allTrades[0].date)}, 2026`
+    : '';
+
+  return (
+    <div style={{ minHeight: '100vh', width: '100%', background: C.bg, fontFamily: "'IBM Plex Sans', sans-serif" }}>
+      <div style={{ maxWidth: 480, margin: '0 auto', padding: '24px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <CandleIcon />
+          <div>
+            <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.1, fontFamily: "'Fraunces', serif", color: C.ink }}>Journifi</div>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', color: C.gold, fontFamily: "'IBM Plex Mono', monospace" }}>
+              Personal Trade Journal · {range}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <StatCard label="Net P&L" value={fmtMoney(stats.netPnl)} valueColor={stats.netPnl >= 0 ? C.gain : C.loss} glyph={stats.netPnl >= 0 ? '↑' : '↓'} sub={`${stats.total} trades`} />
+          <StatCard label="Win Rate" value={`${stats.winRate.toFixed(0)}%`} glyph="◎" sub={`${stats.wins}W / ${stats.losses}L`} />
+          <StatCard label="Avg Win" value={fmtPlain(stats.avgWin)} valueColor={C.gain} glyph="↑" />
+          <StatCard label="Avg Loss" value={fmtPlain(stats.avgLoss)} valueColor={C.loss} glyph="↓" />
+          <StatCard label="Profit Factor" value={isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : '∞'} glyph="⚖" />
+          <StatCard label="Total Trades" value={stats.total} glyph="#" />
+        </div>
+
+        <div style={{ borderRadius: 8, padding: 12, display: 'flex', gap: 8, background: hexToRgba(C.gold, 0.08), border: `1px solid ${hexToRgba(C.gold, 0.3)}` }}>
+          <span style={{ color: C.gold, flexShrink: 0 }}>📓</span>
+          <div style={{ fontSize: 13, lineHeight: 1.4, color: C.ink }}>{getInsight(stats)}</div>
+        </div>
+
+        <div style={{ borderRadius: 8, padding: 12, background: C.surface, border: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8, color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>
+            Cumulative P&L
+          </div>
+          <CumulativeChart data={chartData} />
+        </div>
+
+        <ProfitCalendar dailyPnl={dailyPnl} />
+
+        <div style={{ borderRadius: 8, padding: 12, background: C.surface, border: `1px solid ${C.border}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>Trade Log</div>
+            <button onClick={() => setShowAddForm((s) => !s)}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.gold, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: "'IBM Plex Mono', monospace" }}>
+              + Add
+            </button>
+          </div>
+          {showAddForm && <AddTradeForm onAdd={handleAddTrade} onClose={() => setShowAddForm(false)} />}
+          <div>
+            {allTrades.map((trade) => (
+              <TradeRow key={trade.id} trade={trade} note={notes[trade.id]}
+                expanded={expandedId === trade.id}
+                onToggle={() => setExpandedId(expandedId === trade.id ? null : trade.id)}
+                onNoteChange={(n) => handleNoteChange(trade.id, n)} />
+            ))}
+          </div>
+        </div>
+
+        <div style={{ textAlign: 'center', fontSize: 11, paddingBottom: 8, color: C.inkMuted }}>
+          Saved on this device · Add to Home Screen for the full app feel
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Journifi />);
+</script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
