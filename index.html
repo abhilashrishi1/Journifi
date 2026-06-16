@@ -58,11 +58,17 @@ function hexToRgba(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
+const labelStyle = {
+  fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em',
+  color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace",
+};
+
 /* ---------------------------------------------------------------- */
 /* Seed data — pulled from IBKR, last 30 days as of Jun 13 2026       */
 /* ---------------------------------------------------------------- */
 
 const SEED_TRADES = [
+  { id: 't27', date: '2026-06-15', symbol: 'ADBE', exitType: 'MARKET',  pnl: 360.00 },
   { id: 't1',  date: '2026-06-12', symbol: 'SPY',  exitType: 'MARKET',  pnl: 18.25 },
   { id: 't2',  date: '2026-06-12', symbol: 'SPY',  exitType: 'MARKET',  pnl: 18.95 },
   { id: 't3',  date: '2026-06-12', symbol: 'AMD',  exitType: 'MARKET',  pnl: 44.89 },
@@ -94,6 +100,15 @@ const SEED_TRADES = [
 const SETUP_OPTIONS = ['21 EMA Pullback', 'Trap Pattern', 'Breakout', 'Other'];
 const PSYCH_OPTIONS = ['Followed Plan', 'Stopped Out as Planned', 'FOMO Entry', 'Revenge Trade', 'Cut Early', 'Held Too Long', 'Hesitated'];
 const STORAGE_KEY = 'journifi-journal-v1';
+const MAX_LOSS_DEFAULT = 300;
+
+const CHECKLIST_ITEMS = [
+  '8 AM scan: review levels & watchlist',
+  'Confirm setup: 21 EMA pullback or trap pattern',
+  '10 AM: execute planned entries only',
+  'Stop set — max risk per trade respected',
+  'Close & review by 3:30 PM EST',
+];
 
 /* ---------------------------------------------------------------- */
 /* Helpers                                                            */
@@ -139,7 +154,7 @@ function groupByDate(trades) {
 }
 
 function getInsight(stats) {
-  if (stats.total === 0) return 'Log a few trades to start seeing patterns.';
+  if (stats.total === 0) return 'No trades in this period yet.';
   const pf = stats.profitFactor;
   const wr = stats.winRate;
   if (pf < 1 && wr >= 45) {
@@ -154,6 +169,71 @@ function getInsight(stats) {
   return `Profit factor of ${pf.toFixed(2)} with a ${wr.toFixed(0)}% win rate — this is working. Keep tagging trades so you can see exactly which setup is carrying the period.`;
 }
 
+function computeBreakdown(trades, getKey) {
+  const groups = {};
+  trades.forEach((t) => {
+    const key = getKey(t);
+    if (!key) return;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(t);
+  });
+  return Object.entries(groups)
+    .map(([key, ts]) => ({ key, stats: computeStats(ts) }))
+    .sort((a, b) => b.stats.netPnl - a.stats.netPnl);
+}
+
+function computeStreaks(chronological) {
+  if (chronological.length === 0) return { currentType: null, currentCount: 0, longestWin: 0, longestLoss: 0 };
+  let longestWin = 0, longestLoss = 0, curWin = 0, curLoss = 0;
+  chronological.forEach((t) => {
+    if (t.pnl >= 0) { curWin++; curLoss = 0; longestWin = Math.max(longestWin, curWin); }
+    else { curLoss++; curWin = 0; longestLoss = Math.max(longestLoss, curLoss); }
+  });
+  const last = chronological[chronological.length - 1];
+  const currentType = last.pnl >= 0 ? 'win' : 'loss';
+  const currentCount = currentType === 'win' ? curWin : curLoss;
+  return { currentType, currentCount, longestWin, longestLoss };
+}
+
+function filterByPeriod(trades, period) {
+  if (period === 'all' || trades.length === 0) return trades;
+  const mostRecent = new Date(trades[0].date);
+  if (period === 'month') {
+    const y = mostRecent.getFullYear(), m = mostRecent.getMonth();
+    return trades.filter((t) => {
+      const d = new Date(t.date);
+      return d.getFullYear() === y && d.getMonth() === m;
+    });
+  }
+  if (period === 'week') {
+    const cutoff = new Date(mostRecent);
+    cutoff.setDate(cutoff.getDate() - 6);
+    return trades.filter((t) => {
+      const d = new Date(t.date);
+      return d >= cutoff && d <= mostRecent;
+    });
+  }
+  return trades;
+}
+
+function exportCSV(trades, notes) {
+  const header = ['Date', 'Symbol', 'Exit Type', 'PnL', 'Setup', 'Psychology', 'Notes'];
+  const rows = trades.map((t) => {
+    const n = notes[t.id] || {};
+    return [t.date, t.symbol, t.exitType, t.pnl.toFixed(2), n.setup || '', n.psychology || '', (n.text || '').replace(/"/g, '""')];
+  });
+  const csv = [header, ...rows].map((r) => r.map((c) => `"${String(c)}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `journifi-export-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 /* ---------------------------------------------------------------- */
 /* Storage (localStorage — standalone app)                            */
 /* ---------------------------------------------------------------- */
@@ -161,9 +241,17 @@ function getInsight(stats) {
 function loadData() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const d = JSON.parse(raw);
+      return {
+        notes: d.notes || {},
+        customTrades: d.customTrades || [],
+        maxLoss: d.maxLoss || MAX_LOSS_DEFAULT,
+        checklist: d.checklist || {},
+      };
+    }
   } catch (e) {}
-  return { notes: {}, customTrades: [] };
+  return { notes: {}, customTrades: [], maxLoss: MAX_LOSS_DEFAULT, checklist: {} };
 }
 function saveData(data) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {}
@@ -184,21 +272,24 @@ function CandleIcon() {
   );
 }
 
+function Card({ children, style }) {
+  return (
+    <div style={{ borderRadius: 8, padding: 12, background: C.surface, border: `1px solid ${C.border}`, ...style }}>
+      {children}
+    </div>
+  );
+}
+
 function StatCard({ label, value, valueColor, glyph, sub }) {
   return (
-    <div className="rounded-lg p-3 flex flex-col gap-1"
-      style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12 }}>
+    <Card style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: C.inkMuted }}>
         <span style={{ fontSize: 12, fontFamily: "'IBM Plex Mono', monospace" }}>{glyph}</span>
-        <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', fontFamily: "'IBM Plex Mono', monospace" }}>
-          {label}
-        </span>
+        <span style={labelStyle}>{label}</span>
       </div>
-      <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "'Fraunces', serif", color: valueColor || C.ink }}>
-        {value}
-      </div>
+      <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "'Fraunces', serif", color: valueColor || C.ink }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: C.inkMuted }}>{sub}</div>}
-    </div>
+    </Card>
   );
 }
 
@@ -218,6 +309,141 @@ function ExitBadge({ type }) {
     }}>
       {cfg.label}
     </span>
+  );
+}
+
+function SegmentToggle({ value, onChange, options }) {
+  return (
+    <div style={{ display: 'flex', borderRadius: 8, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+      {options.map((opt) => (
+        <button key={opt.value} onClick={() => onChange(opt.value)}
+          style={{
+            flex: 1, padding: '8px 0', fontSize: 12, fontFamily: "'IBM Plex Mono', monospace",
+            textTransform: 'uppercase', letterSpacing: '0.06em', border: 'none', cursor: 'pointer',
+            background: value === opt.value ? hexToRgba(C.gold, 0.15) : 'transparent',
+            color: value === opt.value ? C.gold : C.inkMuted,
+          }}>
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Streak + Rule cards                                                */
+/* ---------------------------------------------------------------- */
+
+function StreakCard({ streaks }) {
+  const { currentType, currentCount, longestWin, longestLoss } = streaks;
+  const color = currentType === 'win' ? C.gain : currentType === 'loss' ? C.loss : C.inkMuted;
+  const label = currentType
+    ? `${currentCount} ${currentType === 'win' ? 'Win' : 'Loss'}${currentCount !== 1 ? 's' : ''} in a row`
+    : 'No trades yet';
+  return (
+    <Card style={{ flex: 1 }}>
+      <div style={{ ...labelStyle, marginBottom: 4 }}>Current Streak</div>
+      <div style={{ fontSize: 17, fontWeight: 600, fontFamily: "'Fraunces', serif", color }}>{label}</div>
+      <div style={{ fontSize: 11, color: C.inkMuted, marginTop: 4 }}>Best: {longestWin}W · Worst: {longestLoss}L</div>
+    </Card>
+  );
+}
+
+function RuleCard({ trades, maxLoss, onMaxLossChange }) {
+  const violations = trades.filter((t) => t.pnl < -Math.abs(maxLoss));
+  const totalExcess = violations.reduce((s, t) => s + (Math.abs(t.pnl) - Math.abs(maxLoss)), 0);
+  return (
+    <Card style={{ flex: 1 }}>
+      <div style={{ ...labelStyle, marginBottom: 4 }}>Max Loss Rule</div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, marginBottom: 4 }}>
+        <span style={{ fontSize: 13, color: C.inkMuted }}>$</span>
+        <input type="number" value={maxLoss} onChange={(e) => onMaxLossChange(Number(e.target.value) || 0)}
+          style={{ width: 56, fontSize: 17, fontWeight: 600, fontFamily: "'Fraunces', serif", color: C.ink, background: 'transparent', border: 'none', borderBottom: `1px solid ${C.border}`, padding: 0 }} />
+        <span style={{ fontSize: 11, color: C.inkMuted }}>/ trade</span>
+      </div>
+      {violations.length === 0 ? (
+        <div style={{ fontSize: 11, color: C.gain }}>No trades over limit ✓</div>
+      ) : (
+        <div style={{ fontSize: 11, color: C.loss }}>{violations.length} over · -{fmtPlain(totalExcess)} excess</div>
+      )}
+    </Card>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Best / Worst                                                       */
+/* ---------------------------------------------------------------- */
+
+function BestWorstRow({ trades }) {
+  if (trades.length === 0) return null;
+  const best = trades.reduce((a, b) => (b.pnl > a.pnl ? b : a), trades[0]);
+  const worst = trades.reduce((a, b) => (b.pnl < a.pnl ? b : a), trades[0]);
+  const Cell = ({ label, trade, color }) => (
+    <Card style={{ flex: 1 }}>
+      <div style={{ ...labelStyle, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 600, fontFamily: "'Fraunces', serif", color }}>{fmtMoney(trade.pnl)}</div>
+      <div style={{ fontSize: 12, color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>{trade.symbol} · {shortDate(trade.date)}</div>
+    </Card>
+  );
+  return (
+    <div style={{ display: 'flex', gap: 8 }}>
+      <Cell label="Best Trade" trade={best} color={C.gain} />
+      <Cell label="Worst Trade" trade={worst} color={C.loss} />
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Breakdown table                                                    */
+/* ---------------------------------------------------------------- */
+
+function BreakdownTable({ title, rows, emptyText }) {
+  return (
+    <Card>
+      <div style={{ ...labelStyle, marginBottom: 8 }}>{title}</div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 12, color: C.inkMuted }}>{emptyText}</div>
+      ) : (
+        <div>
+          <div style={{ display: 'flex', fontSize: 10, color: C.inkMuted, paddingBottom: 4, fontFamily: "'IBM Plex Mono', monospace", textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <div style={{ flex: 1.4 }}>Tag</div>
+            <div style={{ flex: 1, textAlign: 'center' }}>Trades · Win%</div>
+            <div style={{ flex: 1, textAlign: 'right' }}>Net P&L</div>
+          </div>
+          {rows.map(({ key, stats }) => (
+            <div key={key} style={{ display: 'flex', alignItems: 'center', padding: '6px 0', borderTop: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.ink, flex: 1.4 }}>{key}</div>
+              <div style={{ fontSize: 11, color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace", flex: 1, textAlign: 'center' }}>{stats.total} · {stats.winRate.toFixed(0)}%</div>
+              <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "'IBM Plex Mono', monospace", color: stats.netPnl >= 0 ? C.gain : C.loss, textAlign: 'right', flex: 1 }}>{fmtMoney(stats.netPnl)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Pre-market checklist                                               */
+/* ---------------------------------------------------------------- */
+
+function ChecklistCard({ checked, onToggle, dateLabel }) {
+  const doneCount = CHECKLIST_ITEMS.filter((_, i) => checked[i]).length;
+  return (
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={labelStyle}>Today's Plan · {dateLabel}</div>
+        <div style={{ fontSize: 11, color: C.gold, fontFamily: "'IBM Plex Mono', monospace" }}>{doneCount}/{CHECKLIST_ITEMS.length}</div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {CHECKLIST_ITEMS.map((item, i) => (
+          <label key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: checked[i] ? C.inkMuted : C.ink, cursor: 'pointer', textDecoration: checked[i] ? 'line-through' : 'none' }}>
+            <input type="checkbox" checked={!!checked[i]} onChange={() => onToggle(i)} style={{ width: 16, height: 16, accentColor: C.gold, flexShrink: 0 }} />
+            {item}
+          </label>
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -292,17 +518,19 @@ function CumulativeChart({ data }) {
 /* Trade row                                                          */
 /* ---------------------------------------------------------------- */
 
-function TradeRow({ trade, note, onNoteChange, expanded, onToggle }) {
+function TradeRow({ trade, note, onNoteChange, expanded, onToggle, maxLoss }) {
   const gain = trade.pnl >= 0;
+  const violatesRule = trade.pnl < -Math.abs(maxLoss);
   return (
     <div style={{ borderBottom: `1px solid ${C.border}` }}>
       <button onClick={onToggle}
         style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 4px', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 12, width: 48, fontFamily: "'IBM Plex Mono', monospace", color: C.inkMuted }}>{shortDate(trade.date)}</div>
           <div style={{ fontWeight: 600, fontSize: 14, color: C.ink, fontFamily: "'IBM Plex Sans', sans-serif" }}>{trade.symbol}</div>
           <ExitBadge type={trade.exitType} />
           {(note && (note.setup || note.psychology)) && <span style={{ color: C.gold, fontSize: 10 }}>●</span>}
+          {violatesRule && <span title="Exceeded max loss rule" style={{ color: C.loss, fontSize: 12 }}>⚠</span>}
         </div>
         <div style={{ fontWeight: 600, fontSize: 14, fontFamily: "'IBM Plex Mono', monospace", color: gain ? C.gain : C.loss }}>
           {fmtMoney(trade.pnl)}
@@ -310,9 +538,14 @@ function TradeRow({ trade, note, onNoteChange, expanded, onToggle }) {
       </button>
       {expanded && (
         <div style={{ paddingBottom: 16, paddingLeft: 4, paddingRight: 4, display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeIn 0.15s ease-in' }}>
+          {violatesRule && (
+            <div style={{ fontSize: 12, color: C.loss, background: hexToRgba(C.loss, 0.1), border: `1px solid ${hexToRgba(C.loss, 0.3)}`, borderRadius: 6, padding: '6px 8px' }}>
+              This loss exceeded your ${maxLoss} max-loss rule by {fmtPlain(Math.abs(trade.pnl) - Math.abs(maxLoss))}.
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 140 }}>
-              <label style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 4, color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>Setup</label>
+              <label style={{ ...labelStyle, display: 'block', marginBottom: 4 }}>Setup</label>
               <select value={(note && note.setup) || ''} onChange={(e) => onNoteChange({ ...note, setup: e.target.value })}
                 style={{ width: '100%', fontSize: 14, borderRadius: 4, padding: '6px 8px', background: C.surfaceAlt, color: C.ink, border: `1px solid ${C.border}` }}>
                 <option value="">— Select —</option>
@@ -320,7 +553,7 @@ function TradeRow({ trade, note, onNoteChange, expanded, onToggle }) {
               </select>
             </div>
             <div style={{ flex: 1, minWidth: 140 }}>
-              <label style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 4, color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>Psychology</label>
+              <label style={{ ...labelStyle, display: 'block', marginBottom: 4 }}>Psychology</label>
               <select value={(note && note.psychology) || ''} onChange={(e) => onNoteChange({ ...note, psychology: e.target.value })}
                 style={{ width: '100%', fontSize: 14, borderRadius: 4, padding: '6px 8px', background: C.surfaceAlt, color: C.ink, border: `1px solid ${C.border}` }}>
                 <option value="">— Select —</option>
@@ -329,7 +562,7 @@ function TradeRow({ trade, note, onNoteChange, expanded, onToggle }) {
             </div>
           </div>
           <div>
-            <label style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 4, color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>Notes</label>
+            <label style={{ ...labelStyle, display: 'block', marginBottom: 4 }}>Notes</label>
             <textarea defaultValue={(note && note.text) || ''} onBlur={(e) => onNoteChange({ ...note, text: e.target.value })}
               placeholder="What did you see? What would you do differently?" rows={2}
               style={{ width: '100%', fontSize: 14, borderRadius: 4, padding: '6px 8px', resize: 'none', background: C.surfaceAlt, color: C.ink, border: `1px solid ${C.border}`, fontFamily: "'IBM Plex Sans', sans-serif" }} />
@@ -364,7 +597,7 @@ function ProfitCalendar({ dailyPnl }) {
     .reduce((s, [, v]) => s + v, 0);
 
   return (
-    <div style={{ borderRadius: 8, padding: 12, background: C.surface, border: `1px solid ${C.border}` }}>
+    <Card>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <button onClick={() => setMonth(new Date(year, mIdx - 1, 1))} style={{ background: 'transparent', border: 'none', color: C.inkMuted, cursor: 'pointer', fontSize: 18, padding: 4 }}>‹</button>
         <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "'Fraunces', serif", color: C.ink }}>{monthLabel}</div>
@@ -399,7 +632,7 @@ function ProfitCalendar({ dailyPnl }) {
           );
         })}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -459,44 +692,76 @@ function Journifi() {
   const [customTrades, setCustomTrades] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [period, setPeriod] = useState('all');
+  const [maxLoss, setMaxLoss] = useState(MAX_LOSS_DEFAULT);
+  const [checklist, setChecklist] = useState({});
 
   useEffect(() => {
     const data = loadData();
-    setNotes(data.notes || {});
-    setCustomTrades(data.customTrades || []);
+    setNotes(data.notes);
+    setCustomTrades(data.customTrades);
+    setMaxLoss(data.maxLoss);
+    setChecklist(data.checklist);
   }, []);
 
   const allTrades = useMemo(() => {
     return [...SEED_TRADES, ...customTrades].sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [customTrades]);
 
-  const stats = useMemo(() => computeStats(allTrades), [allTrades]);
+  const filteredTrades = useMemo(() => filterByPeriod(allTrades, period), [allTrades, period]);
+  const stats = useMemo(() => computeStats(filteredTrades), [filteredTrades]);
   const dailyPnl = useMemo(() => groupByDate(allTrades), [allTrades]);
+  const streaks = useMemo(() => computeStreaks([...allTrades].reverse()), [allTrades]);
+  const symbolBreakdown = useMemo(() => computeBreakdown(filteredTrades, (t) => t.symbol), [filteredTrades]);
+  const setupBreakdown = useMemo(() => computeBreakdown(filteredTrades, (t) => (notes[t.id] || {}).setup), [filteredTrades, notes]);
+  const psychBreakdown = useMemo(() => computeBreakdown(filteredTrades, (t) => (notes[t.id] || {}).psychology), [filteredTrades, notes]);
 
   const chartData = useMemo(() => {
-    const dates = Object.keys(dailyPnl).sort();
+    const map = groupByDate(filteredTrades);
+    const dates = Object.keys(map).sort();
     let cum = 0;
     return dates.map((d) => {
-      cum += dailyPnl[d];
+      cum += map[d];
       return { date: d, label: shortDate(d), cum: Math.round(cum * 100) / 100 };
     });
-  }, [dailyPnl]);
+  }, [filteredTrades]);
+
+  const todayKey = new Date().toISOString().slice(0, 10);
 
   const handleNoteChange = (tradeId, nextNote) => {
     const nextNotes = { ...notes, [tradeId]: nextNote };
     setNotes(nextNotes);
-    saveData({ notes: nextNotes, customTrades });
+    saveData({ notes: nextNotes, customTrades, maxLoss, checklist });
   };
 
   const handleAddTrade = (trade) => {
     const next = [...customTrades, trade];
     setCustomTrades(next);
-    saveData({ notes, customTrades: next });
+    saveData({ notes, customTrades: next, maxLoss, checklist });
+  };
+
+  const handleMaxLossChange = (val) => {
+    setMaxLoss(val);
+    saveData({ notes, customTrades, maxLoss: val, checklist });
+  };
+
+  const handleChecklistToggle = (idx) => {
+    const dayChecks = { ...(checklist[todayKey] || {}) };
+    dayChecks[idx] = !dayChecks[idx];
+    const nextChecklist = { ...checklist, [todayKey]: dayChecks };
+    setChecklist(nextChecklist);
+    saveData({ notes, customTrades, maxLoss, checklist: nextChecklist });
   };
 
   const range = allTrades.length
     ? `${shortDate(allTrades[allTrades.length - 1].date)} – ${shortDate(allTrades[0].date)}, 2026`
     : '';
+
+  const btnStyle = {
+    display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase',
+    letterSpacing: '0.08em', background: 'transparent', border: 'none', cursor: 'pointer',
+    fontFamily: "'IBM Plex Mono', monospace",
+  };
 
   return (
     <div style={{ minHeight: '100vh', width: '100%', background: C.bg, fontFamily: "'IBM Plex Sans', sans-serif" }}>
@@ -512,6 +777,12 @@ function Journifi() {
           </div>
         </div>
 
+        <SegmentToggle value={period} onChange={setPeriod} options={[
+          { value: 'all', label: 'All' },
+          { value: 'month', label: 'This Month' },
+          { value: 'week', label: 'This Week' },
+        ]} />
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <StatCard label="Net P&L" value={fmtMoney(stats.netPnl)} valueColor={stats.netPnl >= 0 ? C.gain : C.loss} glyph={stats.netPnl >= 0 ? '↑' : '↓'} sub={`${stats.total} trades`} />
           <StatCard label="Win Rate" value={`${stats.winRate.toFixed(0)}%`} glyph="◎" sub={`${stats.wins}W / ${stats.losses}L`} />
@@ -521,41 +792,53 @@ function Journifi() {
           <StatCard label="Total Trades" value={stats.total} glyph="#" />
         </div>
 
+        <div style={{ display: 'flex', gap: 8 }}>
+          <StreakCard streaks={streaks} />
+          <RuleCard trades={filteredTrades} maxLoss={maxLoss} onMaxLossChange={handleMaxLossChange} />
+        </div>
+
         <div style={{ borderRadius: 8, padding: 12, display: 'flex', gap: 8, background: hexToRgba(C.gold, 0.08), border: `1px solid ${hexToRgba(C.gold, 0.3)}` }}>
           <span style={{ color: C.gold, flexShrink: 0 }}>📓</span>
           <div style={{ fontSize: 13, lineHeight: 1.4, color: C.ink }}>{getInsight(stats)}</div>
         </div>
 
-        <div style={{ borderRadius: 8, padding: 12, background: C.surface, border: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8, color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>
-            Cumulative P&L
-          </div>
+        <BestWorstRow trades={filteredTrades} />
+
+        <Card>
+          <div style={{ ...labelStyle, marginBottom: 8 }}>Cumulative P&L</div>
           <CumulativeChart data={chartData} />
-        </div>
+        </Card>
 
         <ProfitCalendar dailyPnl={dailyPnl} />
 
-        <div style={{ borderRadius: 8, padding: 12, background: C.surface, border: `1px solid ${C.border}` }}>
+        <BreakdownTable title="By Symbol" rows={symbolBreakdown} emptyText="No trades in this period." />
+        <BreakdownTable title="By Setup" rows={setupBreakdown} emptyText="Tag trades with a setup to see this breakdown." />
+        <BreakdownTable title="By Psychology" rows={psychBreakdown} emptyText="Tag trades with a psychology state to see this breakdown." />
+
+        <ChecklistCard checked={checklist[todayKey] || {}} onToggle={handleChecklistToggle} dateLabel={shortDate(todayKey)} />
+
+        <Card>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.inkMuted, fontFamily: "'IBM Plex Mono', monospace" }}>Trade Log</div>
-            <button onClick={() => setShowAddForm((s) => !s)}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.gold, background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: "'IBM Plex Mono', monospace" }}>
-              + Add
-            </button>
+            <div style={labelStyle}>Trade Log</div>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <button onClick={() => exportCSV(filteredTrades, notes)} style={{ ...btnStyle, color: C.inkMuted }}>Export CSV</button>
+              <button onClick={() => setShowAddForm((s) => !s)} style={{ ...btnStyle, color: C.gold }}>+ Add</button>
+            </div>
           </div>
           {showAddForm && <AddTradeForm onAdd={handleAddTrade} onClose={() => setShowAddForm(false)} />}
           <div>
-            {allTrades.map((trade) => (
-              <TradeRow key={trade.id} trade={trade} note={notes[trade.id]}
+            {filteredTrades.map((trade) => (
+              <TradeRow key={trade.id} trade={trade} note={notes[trade.id]} maxLoss={maxLoss}
                 expanded={expandedId === trade.id}
                 onToggle={() => setExpandedId(expandedId === trade.id ? null : trade.id)}
                 onNoteChange={(n) => handleNoteChange(trade.id, n)} />
             ))}
+            {filteredTrades.length === 0 && <div style={{ fontSize: 12, color: C.inkMuted, padding: '12px 0' }}>No trades in this period.</div>}
           </div>
-        </div>
+        </Card>
 
         <div style={{ textAlign: 'center', fontSize: 11, paddingBottom: 8, color: C.inkMuted }}>
-          Saved on this device · Add to Home Screen for the full app feel
+          Saved on this device
         </div>
       </div>
     </div>
