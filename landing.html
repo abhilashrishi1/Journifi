@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="Journifi — the trade journal built for serious options traders. Track every trade, spot your edge, fix your leaks." />
+<title>Journifi — Know Your Edge</title>
+<link rel="icon" href="icon-192.png" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,ital,wght@9..144,0,400;9..144,0,600;9..144,0,700;9..144,1,400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0F1117;
+    --surface: #181C24;
+    --border: #252B36;
+    --ink: #F0EDE6;
+    --muted: #7A8494;
+    --gold: #C9993A;
+    --gain: #5BAF89;
+    --loss: #C0614A;
+    --gain-glow: rgba(91,175,137,0.15);
+    --loss-glow: rgba(192,97,74,0.15);
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  /* NAV */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px;
+    background: rgba(15,17,23,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-logo {
+    display: flex; align-items: center; gap: 10px;
+    font-family: 'Fraunces', serif; font-size: 20px; font-weight: 700;
+    color: var(--ink); text-decoration: none;
+  }
+  .nav-cta {
+    background: var(--gold); color: #1A1208;
+    border: none; border-radius: 8px;
+    padding: 8px 18px; font-size: 13px; font-weight: 600;
+    cursor: pointer; text-decoration: none;
+    font-family: 'IBM Plex Sans', sans-serif;
+    transition: opacity 0.2s;
+  }
+  .nav-cta:hover { opacity: 0.85; }
+
+  /* HERO */
+  .hero {
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 100px 24px 80px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Background candle grid — signature element */
+  .hero-bg {
+    position: absolute; inset: 0; z-index: 0;
+    opacity: 0.04;
+    background-image:
+      repeating-linear-gradient(0deg, transparent, transparent 39px, var(--ink) 39px, var(--ink) 40px),
+      repeating-linear-gradient(90deg, transparent, transparent 39px, var(--ink) 39px, var(--ink) 40px);
+  }
+
+  /* Glow blob */
+  .hero-glow {
+    position: absolute; top: 20%; left: 50%; transform: translateX(-50%);
+    width: 600px; height: 400px;
+    background: radial-gradient(ellipse at center, rgba(201,153,58,0.08) 0%, transparent 70%);
+    z-index: 0; pointer-events: none;
+  }
+
+  .hero-content { position: relative; z-index: 1; max-width: 640px; }
+
+  .eyebrow {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.14em;
+    color: var(--gold);
+    border: 1px solid rgba(201,153,58,0.3);
+    border-radius: 20px; padding: 5px 14px;
+    margin-bottom: 28px;
+  }
+
+  .hero h1 {
+    font-family: 'Fraunces', serif;
+    font-size: clamp(40px, 8vw, 68px);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+    margin-bottom: 24px;
+  }
+
+  .hero h1 em {
+    font-style: italic;
+    color: var(--gold);
+  }
+
+  .hero-sub {
+    font-size: 18px; line-height: 1.6;
+    color: var(--muted);
+    max-width: 480px; margin: 0 auto 48px;
+  }
+
+  /* WAITLIST FORM */
+  .waitlist-form {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    justify-content: center; max-width: 420px; margin: 0 auto;
+  }
+  .waitlist-form input[type="email"] {
+    flex: 1; min-width: 220px;
+    padding: 14px 16px; font-size: 15px;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--border); border-radius: 10px;
+    outline: none; font-family: 'IBM Plex Sans', sans-serif;
+    transition: border-color 0.2s;
+  }
+  .waitlist-form input[type="email"]:focus { border-color: var(--gold); }
+  .waitlist-form input[type="email"]::placeholder { color: var(--muted); }
+  .waitlist-btn {
+    padding: 14px 24px; font-size: 15px; font-weight: 600;
+    background: var(--gold); color: #1A1208;
+    border: none; border-radius: 10px; cursor: pointer;
+    font-family: 'IBM Plex Sans', sans-serif;
+    transition: opacity 0.2s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .waitlist-btn:hover { opacity: 0.9; }
+  .waitlist-btn:active { transform: scale(0.98); }
+
+  .form-note {
+    font-size: 12px; color: var(--muted);
+    font-family: 'IBM Plex Mono', monospace;
+    margin-top: 14px;
+  }
+
+  .success-msg {
+    display: none;
+    background: rgba(91,175,137,0.12);
+    border: 1px solid rgba(91,175,137,0.3);
+    border-radius: 10px; padding: 14px 20px;
+    color: var(--gain); font-size: 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    text-align: center; max-width: 380px; margin: 0 auto;
+  }
+
+  /* LIVE STATS TICKER */
+  .stats-bar {
+    display: flex; justify-content: center; gap: 0;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    margin: 0 0 80px;
+  }
+  .stat-pill {
+    padding: 20px 32px; text-align: center;
+    border-right: 1px solid var(--border);
+    flex: 1; min-width: 140px;
+  }
+  .stat-pill:last-child { border-right: none; }
+  .stat-pill-val {
+    font-family: 'Fraunces', serif;
+    font-size: 28px; font-weight: 700;
+    color: var(--ink); letter-spacing: -0.02em;
+  }
+  .stat-pill-val.green { color: var(--gain); }
+  .stat-pill-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--muted);
+    margin-top: 4px;
+  }
+
+  /* FEATURES */
+  .section {
+    max-width: 900px; margin: 0 auto; padding: 0 24px 100px;
+  }
+  .section-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--gold);
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-family: 'Fraunces', serif;
+    font-size: clamp(28px, 5vw, 44px);
+    font-weight: 700; line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--ink); margin-bottom: 56px;
+  }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 16px;
+  }
+  .feature-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px; padding: 24px;
+    transition: border-color 0.2s;
+  }
+  .feature-card:hover { border-color: rgba(201,153,58,0.3); }
+  .feature-icon { font-size: 24px; margin-bottom: 14px; }
+  .feature-title {
+    font-family: 'Fraunces', serif;
+    font-size: 18px; font-weight: 600;
+    color: var(--ink); margin-bottom: 8px;
+  }
+  .feature-desc {
+    font-size: 14px; line-height: 1.6;
+    color: var(--muted);
+  }
+
+  /* MOCK JOURNAL CARD */
+  .mock-section {
+    max-width: 900px; margin: 0 auto; padding: 0 24px 100px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    align-items: start;
+  }
+  @media (max-width: 640px) { .mock-section { grid-template-columns: 1fr; } }
+  .mock-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px;
+  }
+  .mock-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--muted); margin-bottom: 12px;
+  }
+  .mock-pnl {
+    font-family: 'Fraunces', serif;
+    font-size: 36px; font-weight: 700;
+    color: var(--gain); letter-spacing: -0.03em;
+    box-shadow: 0 0 32px var(--gain-glow);
+  }
+  .mock-pnl.neg { color: var(--loss); box-shadow: 0 0 32px var(--loss-glow); }
+  .mock-sub { font-size: 12px; color: var(--muted); margin-top: 4px; font-family: 'IBM Plex Mono', monospace; }
+  .mock-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .mock-row:last-child { border-bottom: none; }
+  .mock-sym { font-weight: 600; color: var(--ink); }
+  .mock-gain { color: var(--gain); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+  .mock-loss-txt { color: var(--loss); font-family: 'IBM Plex Mono', monospace; font-size: 12px; }
+
+  /* SOCIAL PROOF */
+  .proof-section {
+    max-width: 700px; margin: 0 auto; padding: 0 24px 100px; text-align: center;
+  }
+  .quote {
+    font-family: 'Fraunces', serif; font-style: italic;
+    font-size: clamp(20px, 3.5vw, 30px); line-height: 1.45;
+    color: var(--ink); margin-bottom: 20px;
+  }
+  .quote-attr {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px; text-transform: uppercase;
+    letter-spacing: 0.1em; color: var(--muted);
+  }
+
+  /* FINAL CTA */
+  .final-cta {
+    text-align: center; padding: 0 24px 100px;
+  }
+  .final-cta h2 {
+    font-family: 'Fraunces', serif;
+    font-size: clamp(28px, 5vw, 48px);
+    font-weight: 700; line-height: 1.1;
+    letter-spacing: -0.02em; color: var(--ink);
+    margin-bottom: 16px;
+  }
+  .final-cta p { color: var(--muted); font-size: 16px; margin-bottom: 40px; }
+
+  /* FOOTER */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 24px; text-align: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; color: var(--muted);
+  }
+  footer a { color: var(--muted); text-decoration: none; }
+  footer a:hover { color: var(--gold); }
+
+  @media (max-width: 480px) {
+    .stat-pill { padding: 16px 20px; }
+    .stat-pill-val { font-size: 22px; }
+    nav { padding: 14px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">
+    <svg width="22" height="22" viewBox="0 0 28 28" fill="none">
+      <line x1="7" y1="2" x2="7" y2="26" stroke="#5BAF89" stroke-width="1.5"/>
+      <rect x="4" y="9" width="6" height="9" rx="1" fill="#5BAF89"/>
+      <line x1="21" y1="2" x2="21" y2="26" stroke="#C0614A" stroke-width="1.5"/>
+      <rect x="18" y="4" width="6" height="11" rx="1" fill="#C0614A"/>
+    </svg>
+    Journifi
+  </a>
+  <a href="#waitlist" class="nav-cta">Join Waitlist</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-glow"></div>
+  <div class="hero-content">
+    <div class="eyebrow">Now in early access</div>
+    <h1>Trade smarter.<br /><em>Know your edge.</em></h1>
+    <p class="hero-sub">
+      Journifi is the trade journal built for options traders who are serious about fixing their leaks — not just logging their wins.
+    </p>
+
+    <div id="waitlist">
+      <form class="waitlist-form" id="waitlist-form"
+        action="https://formspree.io/f/xykqegzj"
+        method="POST">
+        <input type="email" name="email" placeholder="your@email.com" required autocomplete="email" />
+        <input type="hidden" name="_subject" value="New Journifi Waitlist Signup" />
+        <button type="submit" class="waitlist-btn">Get Early Access</button>
+      </form>
+      <div class="success-msg" id="success-msg">
+        ✓ You're on the list — we'll reach out when spots open.
+      </div>
+      <p class="form-note">No spam. Unsubscribe anytime.</p>
+    </div>
+  </div>
+</section>
+
+<!-- STATS BAR -->
+<div class="stats-bar">
+  <div class="stat-pill">
+    <div class="stat-pill-val green">+52%</div>
+    <div class="stat-pill-label">Avg win rate</div>
+  </div>
+  <div class="stat-pill">
+    <div class="stat-pill-val">1.19</div>
+    <div class="stat-pill-label">Profit factor</div>
+  </div>
+  <div class="stat-pill">
+    <div class="stat-pill-val green">+$227</div>
+    <div class="stat-pill-label">Net P&L tracked</div>
+  </div>
+  <div class="stat-pill">
+    <div class="stat-pill-val">31</div>
+    <div class="stat-pill-label">Trades logged</div>
+  </div>
+</div>
+
+<!-- FEATURES -->
+<div class="section">
+  <p class="section-label">What you get</p>
+  <h2 class="section-title">Everything a serious<br />trader actually needs.</h2>
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <div class="feature-title">Real stats, not vanity metrics</div>
+      <div class="feature-desc">Win rate, profit factor, avg win vs avg loss, streak tracker. See exactly where your edge is and where it isn't.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🗓️</div>
+      <div class="feature-title">Profit calendar</div>
+      <div class="feature-desc">Color-coded daily P&L at a glance. Spot your best days, your worst weeks, and the patterns between them.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🧠</div>
+      <div class="feature-title">Psychology tagging</div>
+      <div class="feature-desc">Tag each trade: FOMO entry, revenge trade, followed plan. See which headspace costs you the most money.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📰</div>
+      <div class="feature-title">Live news & quotes</div>
+      <div class="feature-desc">Real-time prices and news for your whole watchlist — AMD, SPY, NVDA, META and more — inside the app.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🎯</div>
+      <div class="feature-title">Daily goal tracker</div>
+      <div class="feature-desc">Set a daily P&L target. Watch the progress bar fill as you trade. Know when to stop and protect your gains.</div>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">⚠️</div>
+      <div class="feature-title">Max loss rule enforcer</div>
+      <div class="feature-desc">Set your max loss per trade. Journifi flags every trade that broke your rule so you can't ignore the discipline gap.</div>
+    </div>
+  </div>
+</div>
+
+<!-- MOCK PREVIEW -->
+<div class="mock-section">
+  <div>
+    <p class="section-label" style="padding: 0 0 16px;">Live preview</p>
+    <h2 class="section-title" style="margin-bottom: 24px;">Your journal.<br />All signal,<br />no noise.</h2>
+    <p style="color: var(--muted); font-size: 15px; line-height: 1.6;">Built for mobile. Works offline. Installs to your home screen like a native app — no App Store needed.</p>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 12px;">
+    <div class="mock-card">
+      <div class="mock-label">Net P&L · All time</div>
+      <div class="mock-pnl">+$227.58</div>
+      <div class="mock-sub">31 trades · 52% win rate</div>
+    </div>
+    <div class="mock-card">
+      <div class="mock-label">Recent trades</div>
+      <div class="mock-row"><span class="mock-sym">ADBE</span><span class="mock-gain">+$360.00</span></div>
+      <div class="mock-row"><span class="mock-sym">AMD</span><span class="mock-gain">+$116.00</span></div>
+      <div class="mock-row"><span class="mock-sym">SPY</span><span class="mock-gain">+$34.04</span></div>
+      <div class="mock-row"><span class="mock-sym">META</span><span class="mock-loss-txt">-$102.81</span></div>
+      <div class="mock-row"><span class="mock-sym">AMD</span><span class="mock-loss-txt">-$176.11</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- QUOTE -->
+<div class="proof-section">
+  <p class="quote">"Most traders don't have a strategy problem. They have a self-awareness problem. Journifi fixes that."</p>
+  <p class="quote-attr">— Built by a trader, for traders</p>
+</div>
+
+<!-- FINAL CTA -->
+<div class="final-cta">
+  <h2>Ready to trade<br />with intention?</h2>
+  <p>Join the waitlist. Early access is free.</p>
+  <form class="waitlist-form" id="waitlist-form-2"
+    action="https://formspree.io/f/xykqegzj"
+    method="POST"
+    style="justify-content: center;">
+    <input type="email" name="email" placeholder="your@email.com" required autocomplete="email" />
+    <input type="hidden" name="_subject" value="New Journifi Waitlist Signup" />
+    <button type="submit" class="waitlist-btn">Get Early Access</button>
+  </form>
+  <p class="form-note" style="margin-top: 16px;">No spam. Unsubscribe anytime.</p>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  <p>© 2026 Journifi · <a href="mailto:journifijournal@gmail.com">journifijournal@gmail.com</a> · <a href="journifi.vercel.app">Open App</a></p>
+</footer>
+
+<script>
+  // Handle form submissions
+  ['waitlist-form', 'waitlist-form-2'].forEach(id => {
+    const form = document.getElementById(id);
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector('button');
+      btn.textContent = 'Sending...';
+      btn.disabled = true;
+      try {
+        const res = await fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form),
+          headers: { 'Accept': 'application/json' }
+        });
+        if (res.ok) {
+          form.style.display = 'none';
+          if (id === 'waitlist-form') {
+            document.getElementById('success-msg').style.display = 'block';
+          } else {
+            form.insertAdjacentHTML('afterend', '<div class="success-msg" style="display:block;margin-top:16px;">✓ You\'re on the list — we\'ll reach out when spots open.</div>');
+          }
+        } else {
+          btn.textContent = 'Try again';
+          btn.disabled = false;
+        }
+      } catch(e) {
+        btn.textContent = 'Try again';
+        btn.disabled = false;
+      }
+    });
+  });
+</script>
+
+</body>
+</html>
